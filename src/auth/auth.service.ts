@@ -73,30 +73,37 @@ export class AuthService {
     await this.otpService.verifyOtp(
       user._id.toString(),
       dto.otp,
-      OtpPurpose.LOGIN, // ✅ enforce purpose
+      OtpPurpose.LOGIN,
     );
 
+    // ✅ update last login
     await this.usersService.updateLastLogin(user._id.toString());
 
-    // 🔥 include tokenVersion
+    // 🔥 CRITICAL FIX: increment token version
+    await this.usersService.incrementTokenVersion(user._id.toString());
+
+    // 🔥 get updated user (with new tokenVersion)
+    const updatedUser = await this.usersService.findById(user._id.toString());
+
+    // 🔥 use updated tokenVersion
     const payload: JwtPayload = {
-      sub: user._id.toString(),
-      email: user.email,
-      role: user.role,
-      tokenVersion: user.tokenVersion || 0,
+      sub: updatedUser._id.toString(),
+      email: updatedUser.email,
+      role: updatedUser.role,
+      tokenVersion: updatedUser.tokenVersion,
     };
 
     const accessToken = this.jwtService.sign(payload);
 
-    this.logger.log(`Login success → ${user.email} | IP: ${ip}`);
+    this.logger.log(`Login success → ${updatedUser.email} | IP: ${ip}`);
 
     return {
       accessToken,
       user: {
-        id: user._id.toString(), // ✅ FIX HERE
-        name: user.name,
-        email: user.email,
-        role: user.role,
+        id: updatedUser._id.toString(),
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
       },
     };
   }
