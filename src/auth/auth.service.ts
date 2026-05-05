@@ -3,13 +3,13 @@ import {
   UnauthorizedException,
   BadRequestException,
   Logger,
-} from "@nestjs/common";
-import { JwtService } from "@nestjs/jwt";
-import { UsersService } from "../users/users.service";
-import { OtpService } from "../otp/otp.service";
-import { LoginDto, VerifyOtpDto } from "./dto/auth.dto";
-import { OtpPurpose } from "../common/enums";
-import { JwtPayload } from "./strategies/jwt.strategy";
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { UsersService } from '../users/users.service';
+import { OtpService } from '../otp/otp.service';
+import { LoginDto, VerifyOtpDto } from './dto/auth.dto';
+import { OtpPurpose } from '../common/enums';
+import { JwtPayload } from './strategies/jwt.strategy';
 
 @Injectable()
 export class AuthService {
@@ -33,12 +33,12 @@ export class AuthService {
       !(await this.usersService.validatePassword(user, dto.password))
     ) {
       this.logger.warn(`Failed login attempt → ${dto.email} | IP: ${ip}`);
-      throw new UnauthorizedException("Invalid email or password");
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     if (!user.isActive) {
       throw new UnauthorizedException(
-        "Account is deactivated. Contact administrator.",
+        'Account is deactivated. Contact administrator.',
       );
     }
 
@@ -51,7 +51,7 @@ export class AuthService {
     this.logger.log(`Login OTP sent → ${user.email} | IP: ${ip}`);
 
     return {
-      message: "OTP sent to your email. Please verify to complete login.",
+      message: 'OTP sent to your email. Please verify to complete login.',
       email: user.email,
     };
   }
@@ -67,7 +67,7 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
 
     if (!user) {
-      throw new BadRequestException("User not found");
+      throw new BadRequestException('User not found');
     }
 
     await this.otpService.verifyOtp(
@@ -107,7 +107,7 @@ export class AuthService {
 
     if (!user) {
       return {
-        message: "If that email exists, an OTP has been sent.",
+        message: 'If that email exists, an OTP has been sent.',
       };
     }
 
@@ -120,7 +120,7 @@ export class AuthService {
     this.logger.log(`Password reset OTP sent → ${email}`);
 
     return {
-      message: "If that email exists, an OTP has been sent.",
+      message: 'If that email exists, an OTP has been sent.',
     };
   }
 
@@ -133,7 +133,7 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
 
     if (!user) {
-      throw new BadRequestException("Invalid request");
+      throw new BadRequestException('Invalid request');
     }
 
     // 🔐 enforce correct OTP purpose
@@ -145,7 +145,7 @@ export class AuthService {
 
     // 🔒 basic password validation
     if (dto.newPassword.length < 8) {
-      throw new BadRequestException("Password must be at least 8 characters");
+      throw new BadRequestException('Password must be at least 8 characters');
     }
 
     await this.usersService.forceSetPassword(
@@ -159,7 +159,7 @@ export class AuthService {
     this.logger.log(`Password reset success → ${dto.email}`);
 
     return {
-      message: "Password reset successfully",
+      message: 'Password reset successfully',
     };
   }
 }

@@ -7,10 +7,10 @@ import {
   UseGuards,
   Get,
   Logger,
-} from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
-import { AuthService } from "./auth.service";
+import { AuthService } from './auth.service';
 import {
   LoginDto,
   VerifyOtpDto,
@@ -18,19 +18,19 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   ResendOtpDto,
-} from "./dto/auth.dto";
+} from './dto/auth.dto';
 
-import { JwtAuthGuard, Public } from "../common/guards/jwt-auth.guard";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
-import { ClientIp } from "../common/decorators/client-ip.decorator";
+import { JwtAuthGuard, Public } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ClientIp } from '../common/decorators/client-ip.decorator';
 
-import { OtpService } from "../otp/otp.service";
-import { TransactionsService } from "../transactions/transactions.service";
-import { UsersService } from "../users/users.service";
+import { OtpService } from '../otp/otp.service';
+import { TransactionsService } from '../transactions/transactions.service';
+import { UsersService } from '../users/users.service';
 
-import { TransactionAction, OtpPurpose } from "../common/enums";
+import { TransactionAction, OtpPurpose } from '../common/enums';
 
-@Controller("auth")
+@Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
@@ -43,7 +43,7 @@ export class AuthController {
 
   // 🔐 LOGIN
   @Public()
-  @Post("login")
+  @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async login(@Body() dto: LoginDto, @ClientIp() ip: string) {
@@ -57,7 +57,7 @@ export class AuthController {
 
   // 🔐 VERIFY OTP
   @Public()
-  @Post("verify-otp")
+  @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async verifyOtp(@Body() dto: VerifyOtpDto, @ClientIp() ip: string) {
@@ -65,7 +65,7 @@ export class AuthController {
 
     // ✅ Defensive check
     if (!result?.user?.id) {
-      throw new Error("Invalid verifyOtp response: user id missing");
+      throw new Error('Invalid verifyOtp response: user id missing');
     }
 
     await this.transactionsService.log({
@@ -75,13 +75,13 @@ export class AuthController {
     });
 
     return {
-      message: "Login successful",
+      message: 'Login successful',
       data: result,
     };
   }
 
   // 🔁 RESEND OTP
-  @Post("resend-otp")
+  @Post('resend-otp')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   async resendOtp(@Body() dto: ResendOtpDto, @ClientIp() ip: string) {
@@ -89,7 +89,7 @@ export class AuthController {
 
     if (!user) {
       return {
-        message: "If that email exists, an OTP has been resent.",
+        message: 'If that email exists, an OTP has been resent.',
         data: null,
       };
     }
@@ -106,13 +106,13 @@ export class AuthController {
     });
 
     return {
-      message: "OTP resent successfully",
+      message: 'OTP resent successfully',
       data: null,
     };
   }
 
   // 🔐 REQUEST OTP (PROTECTED)
-  @Post("request-otp")
+  @Post('request-otp')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
@@ -141,17 +141,17 @@ export class AuthController {
   }
 
   // 👤 GET ME
-  @Get("me")
+  @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() currentUser: any) {
     return {
-      message: "User retrieved",
+      message: 'User retrieved',
       data: currentUser,
     };
   }
 
   // 🔑 FORGOT PASSWORD
-  @Post("forgot-password")
+  @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   async forgotPassword(@Body() dto: ForgotPasswordDto, @ClientIp() ip: string) {
@@ -166,7 +166,7 @@ export class AuthController {
   }
 
   // 🔑 RESET PASSWORD
-  @Post("reset-password")
+  @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async resetPassword(@Body() dto: ResetPasswordDto, @ClientIp() ip: string) {

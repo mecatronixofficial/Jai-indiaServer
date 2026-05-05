@@ -37,12 +37,9 @@ export class FoldersService {
   private verifyAccess(folder: FolderDocument, user: any): void {
     const userId = this.getUserId(user);
 
-    const isOwner =
-      folder.createdBy.toString() === userId;
+    const isOwner = folder.createdBy.toString() === userId;
 
-    const isAdmin =
-      user.role === Role.ADMIN ||
-      user.role === Role.SUPERADMIN;
+    const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPERADMIN;
 
     if (!isOwner && !isAdmin) {
       throw new ForbiddenException('You do not have access to this folder');
@@ -176,10 +173,7 @@ export class FoldersService {
   // -------------------------
   // Soft Delete
   // -------------------------
-  async softDelete(
-    id: string,
-    user: any,
-  ): Promise<{ message: string }> {
+  async softDelete(id: string, user: any): Promise<{ message: string }> {
     const folder = await this.findOne(id, user);
     this.verifyAccess(folder, user);
 

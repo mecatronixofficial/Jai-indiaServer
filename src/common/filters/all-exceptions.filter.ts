@@ -34,7 +34,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
-      this.logger.error(`Unhandled exception: ${exception.message}`, exception.stack);
+      this.logger.error(
+        `Unhandled exception: ${exception.message}`,
+        exception.stack,
+      );
     }
 
     const responseBody: Record<string, any> = {

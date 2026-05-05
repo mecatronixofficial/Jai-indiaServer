@@ -18,8 +18,7 @@ dotenv.config();
  * 🔐 ENV VALIDATION
  */
 const MONGO_URI =
-  process.env.MONGODB_URI ||
-  'mongodb://localhost:27017/jai-india-filetransfer';
+  process.env.MONGODB_URI || 'mongodb://localhost:27017/jai-india-filetransfer';
 
 const SUPERADMIN_EMAIL =
   process.env.SUPERADMIN_EMAIL || 'superadmin@jai-india.com';
@@ -27,8 +26,7 @@ const SUPERADMIN_EMAIL =
 const SUPERADMIN_PASSWORD =
   process.env.SUPERADMIN_PASSWORD || 'SuperAdmin@123!';
 
-const SUPERADMIN_NAME =
-  process.env.SUPERADMIN_NAME || 'Super Administrator';
+const SUPERADMIN_NAME = process.env.SUPERADMIN_NAME || 'Super Administrator';
 
 if (!MONGO_URI) {
   console.error('❌ MONGODB_URI is missing in .env');
@@ -122,10 +120,7 @@ async function seed() {
      * 🔐 HASH PASSWORD
      */
     const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(
-      SUPERADMIN_PASSWORD,
-      saltRounds,
-    );
+    const hashedPassword = await bcrypt.hash(SUPERADMIN_PASSWORD, saltRounds);
 
     /**
      * 👑 CREATE SUPERADMIN
@@ -149,9 +144,7 @@ async function seed() {
 ║  Name     : ${SUPERADMIN_NAME.padEnd(28)}║
 ║  Email    : ${SUPERADMIN_EMAIL.padEnd(28)}║
 ║  Password : ${SUPERADMIN_PASSWORD.padEnd(28)}║
-║  ID       : ${superAdmin._id
-      .toString()
-      .padEnd(28)}║
+║  ID       : ${superAdmin._id.toString().padEnd(28)}║
 ╠════════════════════════════════════════════╣
 ║  ⚠️  Change password immediately!          ║
 ╚════════════════════════════════════════════╝

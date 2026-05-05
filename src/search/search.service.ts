@@ -38,10 +38,7 @@ export class SearchService {
     if (user.role === Role.USER) {
       fileFilter.$and = [
         {
-          $or: [
-            { uploadedBy: user._id },
-            { sharedWith: user._id },
-          ],
+          $or: [{ uploadedBy: user._id }, { sharedWith: user._id }],
         },
       ];
       folderFilter.createdBy = user._id;

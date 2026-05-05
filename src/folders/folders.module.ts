@@ -10,9 +10,7 @@ import { FilesModule } from '../files/files.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([
-      { name: Folder.name, schema: FolderSchema },
-    ]),
+    MongooseModule.forFeature([{ name: Folder.name, schema: FolderSchema }]),
 
     TransactionsModule,
 

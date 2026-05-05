@@ -168,11 +168,7 @@ export class FilesController {
     @CurrentUser() user: any,
     @ClientIp() ip: string,
   ) {
-    const result = await this.filesService.softDelete(
-      id,
-      dto.otpCode,
-      user,
-    );
+    const result = await this.filesService.softDelete(id, dto.otpCode, user);
 
     await this.transactionsService.log({
       userId: user._id.toString(),

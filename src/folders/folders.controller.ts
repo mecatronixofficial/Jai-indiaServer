@@ -111,10 +111,7 @@ export class FoldersController {
   // GET SINGLE FOLDER
   // -------------------------
   @Get(':id')
-  async findOne(
-    @Param('id') id: string,
-    @CurrentUser() currentUser: any,
-  ) {
+  async findOne(@Param('id') id: string, @CurrentUser() currentUser: any) {
     this.validateId(id);
 
     const folder = await this.foldersService.findOne(id, currentUser);

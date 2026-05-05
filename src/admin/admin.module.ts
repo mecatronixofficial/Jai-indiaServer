@@ -6,7 +6,10 @@ import { AdminService } from './admin.service';
 
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { FileRecord, FileSchema } from '../files/schemas/file.schema';
-import { Transaction, TransactionSchema } from '../transactions/schemas/transaction.schema';
+import {
+  Transaction,
+  TransactionSchema,
+} from '../transactions/schemas/transaction.schema';
 
 @Module({
   imports: [

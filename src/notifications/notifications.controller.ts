@@ -40,25 +40,17 @@ export class NotificationsController {
 
   /** PATCH /notifications/:id/read */
   @Patch(':id/read')
-  async markAsRead(
-    @Param('id') id: string,
-    @CurrentUser() currentUser: any,
-  ) {
+  async markAsRead(@Param('id') id: string, @CurrentUser() currentUser: any) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid notification ID');
     }
 
-    return this.notificationsService.markAsRead(
-      id,
-      currentUser._id.toString(),
-    );
+    return this.notificationsService.markAsRead(id, currentUser._id.toString());
   }
 
   /** PATCH /notifications/read-all */
   @Patch('read-all')
   async markAllAsRead(@CurrentUser() currentUser: any) {
-    return this.notificationsService.markAllAsRead(
-      currentUser._id.toString(),
-    );
+    return this.notificationsService.markAllAsRead(currentUser._id.toString());
   }
 }

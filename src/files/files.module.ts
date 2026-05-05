@@ -14,9 +14,7 @@ import { TransactionsModule } from '../transactions/transactions.module';
 @Module({
   imports: [
     // MongoDB schema registration
-    MongooseModule.forFeature([
-      { name: FileRecord.name, schema: FileSchema },
-    ]),
+    MongooseModule.forFeature([{ name: FileRecord.name, schema: FileSchema }]),
 
     // External services
     R2Module,
@@ -26,10 +24,7 @@ import { TransactionsModule } from '../transactions/transactions.module';
 
   controllers: [FilesController],
 
-  providers: [
-    FilesService,
-    FilesCronService,
-  ],
+  providers: [FilesService, FilesCronService],
 
   exports: [
     FilesService, // used by folders/search/other modules

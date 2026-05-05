@@ -25,9 +25,7 @@ const SALT_ROUNDS = 12;
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
-  ) {}
+  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
 
   /* =========================
      CREATE USER

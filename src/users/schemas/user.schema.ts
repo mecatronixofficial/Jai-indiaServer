@@ -1,12 +1,12 @@
-import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { Document, Types } from "mongoose";
-import { Role } from "../../common/enums";
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+import { Role } from '../../common/enums';
 
 export type UserDocument = User & Document;
 
 @Schema({
   timestamps: true,
-  collection: "users",
+  collection: 'users',
   toJSON: {
     virtuals: true,
     transform: function (_doc, ret: any) {
@@ -22,7 +22,7 @@ export class User {
 
   @Prop({
     required: true,
-    unique: true,   // ✔ keeps index here
+    unique: true, // ✔ keeps index here
     lowercase: true,
     trim: true,
   })
@@ -44,7 +44,7 @@ export class User {
   @Prop({ default: false })
   isEmailVerified: boolean;
 
-  @Prop({ type: Types.ObjectId, ref: "User" })
+  @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy: Types.ObjectId;
 
   @Prop()
@@ -84,6 +84,6 @@ UserSchema.index({ role: 1, isActive: 1 });
    VIRTUALS
 ========================= */
 
-UserSchema.virtual("displayName").get(function (this: User) {
+UserSchema.virtual('displayName').get(function (this: User) {
   return `${this.name} (${this.email})`;
 });

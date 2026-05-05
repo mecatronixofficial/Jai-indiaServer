@@ -8,9 +8,7 @@ import { Otp, OtpSchema } from './schemas/otp.schema';
 @Module({
   imports: [
     ConfigModule, // 👈 important for expiry / security config
-    MongooseModule.forFeature([
-      { name: Otp.name, schema: OtpSchema },
-    ]),
+    MongooseModule.forFeature([{ name: Otp.name, schema: OtpSchema }]),
   ],
   providers: [OtpService],
   exports: [OtpService],

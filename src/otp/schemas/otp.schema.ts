@@ -86,10 +86,7 @@ OtpSchema.index({ email: 1, purpose: 1 });
 /**
  * TTL auto delete expired OTPs
  */
-OtpSchema.index(
-  { expiresAt: 1 },
-  { expireAfterSeconds: 0 },
-);
+OtpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 /**
  * Prevent multiple active OTPs per user + purpose

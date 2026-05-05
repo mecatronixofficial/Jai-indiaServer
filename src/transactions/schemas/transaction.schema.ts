@@ -104,7 +104,4 @@ TransactionSchema.index({ ip: 1 });
 /**
  * TTL auto cleanup
  */
-TransactionSchema.index(
-  { expiresAt: 1 },
-  { expireAfterSeconds: 0 },
-);
+TransactionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
