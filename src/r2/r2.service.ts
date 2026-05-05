@@ -32,12 +32,15 @@ export class R2Service {
   constructor(private configService: ConfigService) {
     const accountId = this.configService.get<string>('r2.accountId');
     const accessKeyId = this.configService.get<string>('r2.accessKeyId');
-    const secretAccessKey = this.configService.get<string>('r2.secretAccessKey');
+    const secretAccessKey =
+      this.configService.get<string>('r2.secretAccessKey');
     const endpointFromEnv = this.configService.get<string>('r2.endpoint');
 
     const bucket = this.configService.get<string>('r2.bucketName');
-    const uploadExpiry = this.configService.get<number>('r2.presignedUploadExpiry') ?? 3600;
-    const downloadExpiry = this.configService.get<number>('r2.presignedDownloadExpiry') ?? 900;
+    const uploadExpiry =
+      this.configService.get<number>('r2.presignedUploadExpiry') ?? 3600;
+    const downloadExpiry =
+      this.configService.get<number>('r2.presignedDownloadExpiry') ?? 900;
 
     this.maxFileSize =
       this.configService.get<number>('r2.maxFileSize') ??
@@ -49,8 +52,7 @@ export class R2Service {
     }
 
     const endpoint =
-      endpointFromEnv ||
-      `https://${accountId}.r2.cloudflarestorage.com`;
+      endpointFromEnv || `https://${accountId}.r2.cloudflarestorage.com`;
 
     this.bucketName = bucket;
     this.presignedUploadExpiry = uploadExpiry;

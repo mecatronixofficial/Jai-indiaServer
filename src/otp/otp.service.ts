@@ -1,13 +1,13 @@
-import { Injectable, Logger, BadRequestException } from "@nestjs/common";
-import { InjectModel } from "@nestjs/mongoose";
-import { Model, Types } from "mongoose";
-import { ConfigService } from "@nestjs/config";
-import { Resend } from "resend";
-import * as bcrypt from "bcrypt";
-import { randomInt } from "crypto";
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
+import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
 
-import { Otp, OtpDocument } from "./schemas/otp.schema";
-import { OtpPurpose } from "../common/enums";
+import { Otp, OtpDocument } from './schemas/otp.schema';
+import { OtpPurpose } from '../common/enums';
 
 @Injectable()
 export class OtpService {
@@ -19,16 +19,15 @@ export class OtpService {
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
     private configService: ConfigService,
   ) {
-    const apiKey = this.configService.get<string>("email.apiKey");
+    const apiKey = this.configService.get<string>('email.apiKey');
 
     if (!apiKey) {
-      throw new Error("❌ RESEND_API_KEY missing in environment variables");
+      throw new Error('❌ RESEND_API_KEY missing in environment variables');
     }
 
     this.resend = new Resend(apiKey);
     this.from =
-      this.configService.get<string>("email.from") ||
-      "onboarding@resend.dev";
+      this.configService.get<string>('email.from') || 'onboarding@resend.dev';
   }
 
   /* =========================
@@ -48,7 +47,7 @@ export class OtpService {
     fileId?: string,
   ): Promise<{ message: string }> {
     const expiryMinutes = this.configService.get<number>(
-      "otp.expiryMinutes",
+      'otp.expiryMinutes',
       5,
     );
 
@@ -106,15 +105,15 @@ export class OtpService {
     });
 
     if (!otp) {
-      throw new BadRequestException("Invalid or expired OTP");
+      throw new BadRequestException('Invalid or expired OTP');
     }
 
     if (otp.attempts >= otp.maxAttempts) {
-      throw new BadRequestException("OTP locked due to too many attempts");
+      throw new BadRequestException('OTP locked due to too many attempts');
     }
 
     if (fileId && otp.fileId && otp.fileId.toString() !== fileId) {
-      throw new BadRequestException("OTP does not match this request");
+      throw new BadRequestException('OTP does not match this request');
     }
 
     const isValid = await bcrypt.compare(code, otp.codeHash);
@@ -123,7 +122,7 @@ export class OtpService {
 
     if (!isValid) {
       await otp.save();
-      throw new BadRequestException("Invalid OTP");
+      throw new BadRequestException('Invalid OTP');
     }
 
     otp.isUsed = true;
@@ -142,9 +141,9 @@ export class OtpService {
     expiryMinutes: number,
   ): Promise<void> {
     const purposeLabels: Record<OtpPurpose, string> = {
-      [OtpPurpose.LOGIN]: "Login Verification",
-      [OtpPurpose.DELETE_FILE]: "File Deletion Confirmation",
-      [OtpPurpose.RESET_PASSWORD]: "Password Reset",
+      [OtpPurpose.LOGIN]: 'Login Verification',
+      [OtpPurpose.DELETE_FILE]: 'File Deletion Confirmation',
+      [OtpPurpose.RESET_PASSWORD]: 'Password Reset',
     };
 
     const subject = `[Jai-India FileTransfer] ${purposeLabels[purpose]} OTP`;
@@ -180,11 +179,10 @@ export class OtpService {
         subject,
         html,
       });
-
     } catch (err) {
-      console.error("RESEND ERROR:", err);
+      console.error('RESEND ERROR:', err);
       this.logger.error(`❌ OTP email failed: ${(err as Error).message}`);
-      throw new Error("Failed to send OTP email");
+      throw new Error('Failed to send OTP email');
     }
   }
 }

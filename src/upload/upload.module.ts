@@ -13,8 +13,8 @@ import { FileRecord, FileSchema } from '../files/schemas/file.schema';
 @Module({
   imports: [
     R2Module,
-    UsersModule,          // 👈 for quota validation
-    TransactionsModule,   // 👈 for logging uploads
+    UsersModule, // 👈 for quota validation
+    TransactionsModule, // 👈 for logging uploads
 
     MongooseModule.forFeature([
       { name: FileRecord.name, schema: FileSchema }, // 👈 store metadata

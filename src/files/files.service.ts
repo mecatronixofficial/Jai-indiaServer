@@ -310,12 +310,10 @@ export class FilesService {
       throw new NotFoundException('File not found');
     }
 
-    const isOwner =
-      file.uploadedBy.toString() === currentUser._id.toString();
+    const isOwner = file.uploadedBy.toString() === currentUser._id.toString();
 
     const isAdmin =
-      currentUser.role === Role.ADMIN ||
-      currentUser.role === Role.SUPERADMIN;
+      currentUser.role === Role.ADMIN || currentUser.role === Role.SUPERADMIN;
 
     const isShared = file.sharedWith?.some(
       (id) => id.toString() === currentUser._id.toString(),
@@ -329,12 +327,10 @@ export class FilesService {
   }
 
   private verifyOwnerOrAdmin(file: FileDocument, currentUser: any) {
-    const isOwner =
-      file.uploadedBy.toString() === currentUser._id.toString();
+    const isOwner = file.uploadedBy.toString() === currentUser._id.toString();
 
     const isAdmin =
-      currentUser.role === Role.ADMIN ||
-      currentUser.role === Role.SUPERADMIN;
+      currentUser.role === Role.ADMIN || currentUser.role === Role.SUPERADMIN;
 
     if (!isOwner && !isAdmin) {
       throw new ForbiddenException('Access denied');
@@ -342,33 +338,33 @@ export class FilesService {
   }
 
   async permanentlyDeleteExpired(retentionDays: number): Promise<number> {
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-  const expiredFiles = await this.fileModel.find({
-    isDeleted: true,
-    deletedAt: { $lte: cutoffDate },
-  });
+    const expiredFiles = await this.fileModel.find({
+      isDeleted: true,
+      deletedAt: { $lte: cutoffDate },
+    });
 
-  let deletedCount = 0;
+    let deletedCount = 0;
 
-  for (const file of expiredFiles) {
-    try {
-      // delete from R2 storage
-      await this.r2Service.deleteObject(file.key);
+    for (const file of expiredFiles) {
+      try {
+        // delete from R2 storage
+        await this.r2Service.deleteObject(file.key);
 
-      // delete from MongoDB
-      await this.fileModel.findByIdAndDelete(file._id);
+        // delete from MongoDB
+        await this.fileModel.findByIdAndDelete(file._id);
 
-      deletedCount++;
-    } catch (err) {
-      this.logger.error(
-        `Failed deleting file ${file._id}`,
-        (err as Error).stack,
-      );
+        deletedCount++;
+      } catch (err) {
+        this.logger.error(
+          `Failed deleting file ${file._id}`,
+          (err as Error).stack,
+        );
+      }
     }
-  }
 
-  return deletedCount;
-}
+    return deletedCount;
+  }
 }

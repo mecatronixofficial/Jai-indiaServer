@@ -58,14 +58,11 @@ export const r2Config = registerAs('r2', () => {
     accountId,
     accessKeyId,
     secretAccessKey,
-    bucketName:
-      process.env.R2_BUCKET_NAME ?? 'jai-india-filetransfer',
+    bucketName: process.env.R2_BUCKET_NAME ?? 'jai-india-filetransfer',
     endpoint:
       process.env.R2_ENDPOINT ??
       `https://${accountId}.r2.cloudflarestorage.com`,
-    presignedUploadExpiry: Number(
-      process.env.PRESIGNED_UPLOAD_EXPIRY ?? 3600,
-    ),
+    presignedUploadExpiry: Number(process.env.PRESIGNED_UPLOAD_EXPIRY ?? 3600),
     presignedDownloadExpiry: Number(
       process.env.PRESIGNED_DOWNLOAD_EXPIRY ?? 900,
     ),
@@ -87,9 +84,7 @@ export const emailConfig = registerAs('email', () => {
   return {
     provider: process.env.EMAIL_PROVIDER ?? 'resend',
     apiKey,
-    from:
-      process.env.RESEND_FROM ??
-      'onboarding@resend.dev', 
+    from: process.env.RESEND_FROM ?? 'onboarding@resend.dev',
   };
 });
 

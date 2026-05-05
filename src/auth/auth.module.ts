@@ -49,16 +49,9 @@ import { TransactionsModule } from '../transactions/transactions.module';
 
   controllers: [AuthController],
 
-  providers: [
-    AuthService,
-    JwtStrategy,
-  ],
+  providers: [AuthService, JwtStrategy],
 
   // ✅ Export for global usage
-  exports: [
-    AuthService,
-    JwtModule,
-    PassportModule,
-  ],
+  exports: [AuthService, JwtModule, PassportModule],
 })
 export class AuthModule {}

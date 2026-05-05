@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 
 import { R2Service } from '../r2/r2.service';
 import {
@@ -41,21 +37,17 @@ export class UploadService {
   /* =========================
      PRESIGNED URL
   ========================= */
-  async generatePresignedUrl(
-    dto: PresignedUrlDto,
-    userId: string,
-  ) {
+  async generatePresignedUrl(dto: PresignedUrlDto, userId: string) {
     this.validateFile(dto.mimeType, dto.fileSize);
 
     const safeName = this.sanitizeFileName(dto.fileName);
     const key = this.r2Service.generateKey(safeName, userId);
 
-    const { uploadUrl } =
-      await this.r2Service.generatePresignedUploadUrl(
-        key,
-        dto.mimeType,
-        dto.fileSize,
-      );
+    const { uploadUrl } = await this.r2Service.generatePresignedUploadUrl(
+      key,
+      dto.mimeType,
+      dto.fileSize,
+    );
 
     this.logger.log(
       `Presigned URL generated | user=${userId} | key=${key} | size=${dto.fileSize}`,
@@ -71,20 +63,16 @@ export class UploadService {
   /* =========================
      MULTIPART INIT
   ========================= */
-  async initiateMultipartUpload(
-    dto: InitiateMultipartDto,
-    userId: string,
-  ) {
+  async initiateMultipartUpload(dto: InitiateMultipartDto, userId: string) {
     this.validateFile(dto.mimeType, dto.fileSize);
 
     const safeName = this.sanitizeFileName(dto.fileName);
     const key = this.r2Service.generateKey(safeName, userId);
 
-    const uploadId =
-      await this.r2Service.createMultipartUpload(
-        key,
-        dto.mimeType,
-      );
+    const uploadId = await this.r2Service.createMultipartUpload(
+      key,
+      dto.mimeType,
+    );
 
     const partSize = 50 * 1024 * 1024; // 50MB
 
@@ -102,10 +90,7 @@ export class UploadService {
   /* =========================
      MULTIPART COMPLETE
   ========================= */
-  async completeMultipartUpload(
-    dto: CompleteMultipartDto,
-    userId: string,
-  ) {
+  async completeMultipartUpload(dto: CompleteMultipartDto, userId: string) {
     if (!dto.parts?.length) {
       throw new BadRequestException('Parts list cannot be empty');
     }

@@ -9,7 +9,10 @@ import { Role } from '../common/enums';
 
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { FileRecord, FileDocument } from '../files/schemas/file.schema';
-import { Transaction, TransactionDocument } from '../transactions/schemas/transaction.schema';
+import {
+  Transaction,
+  TransactionDocument,
+} from '../transactions/schemas/transaction.schema';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -17,8 +20,10 @@ import { Transaction, TransactionDocument } from '../transactions/schemas/transa
 export class AdminController {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
-    @InjectModel(FileRecord.name) private readonly fileModel: Model<FileDocument>,
-    @InjectModel(Transaction.name) private readonly transactionModel: Model<TransactionDocument>,
+    @InjectModel(FileRecord.name)
+    private readonly fileModel: Model<FileDocument>,
+    @InjectModel(Transaction.name)
+    private readonly transactionModel: Model<TransactionDocument>,
   ) {}
 
   /** =========================
@@ -51,10 +56,13 @@ export class AdminController {
       ]),
     ]);
 
-    const usersByRole = usersByRoleRaw.reduce((acc, r) => {
-      acc[r._id] = r.count;
-      return acc;
-    }, {} as Record<string, number>);
+    const usersByRole = usersByRoleRaw.reduce(
+      (acc, r) => {
+        acc[r._id] = r.count;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
     return {
       success: true,

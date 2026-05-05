@@ -15,8 +15,7 @@ import { OtpPurpose } from '../../common/enums';
 /**
  * 🔐 Common Validators
  */
-const PASSWORD_REGEX =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).+$/;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).+$/;
 
 const OTP_REGEX = /^[0-9]{6}$/;
 
