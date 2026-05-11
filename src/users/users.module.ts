@@ -5,20 +5,20 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 
 import { User, UserSchema } from './schemas/user.schema';
-import { FileRecord, FileSchema } from '../files/schemas/file.schema';
-import { TransactionsModule } from '../transactions/transactions.module'; // ✅ FIX: relative path
+import { TransactionsModule } from '../transactions/transactions.module';
+import { FilesModule } from '../files/files.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
-      { name: FileRecord.name, schema: FileSchema },
     ]),
 
-    forwardRef(() => TransactionsModule), // ✅ FIX circular dependency
+    forwardRef(() => TransactionsModule),
+    forwardRef(() => FilesModule),
   ],
-  providers: [UsersService],
   controllers: [UsersController],
+  providers: [UsersService],
   exports: [UsersService],
 })
 export class UsersModule {}

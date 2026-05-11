@@ -2,7 +2,6 @@ import {
   IsEmail,
   IsNotEmpty,
   IsString,
-  Length,
   IsEnum,
   IsOptional,
   Matches,
@@ -15,22 +14,33 @@ import { OtpPurpose } from '../../common/enums';
 /**
  * 🔐 Common Validators
  */
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).+$/;
+const PASSWORD_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).+$/;
 
 const OTP_REGEX = /^[0-9]{6}$/;
+
+/**
+ * 🔧 COMMON TRANSFORM
+ */
+const trim = () =>
+  Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  );
 
 /**
  * 🔑 LOGIN DTO
  */
 export class LoginDto {
   @IsEmail()
-  @Transform(({ value }) => value.toLowerCase().trim())
+  @trim()
+  @Transform(({ value }) => value.toLowerCase())
   email: string;
 
   @IsString()
+  @trim()
   @IsNotEmpty()
   @MinLength(8)
-  @MaxLength(32)
+  @MaxLength(64) // ✅ increased
   password: string;
 }
 
@@ -39,18 +49,21 @@ export class LoginDto {
  */
 export class VerifyOtpDto {
   @IsEmail()
-  @Transform(({ value }) => value.toLowerCase().trim())
+  @trim()
+  @Transform(({ value }) => value.toLowerCase())
   email: string;
 
   @Matches(OTP_REGEX, { message: 'OTP must be 6 digits' })
+  @trim()
   otp: string;
 
   @IsEnum(OtpPurpose)
-  @IsOptional()
-  purpose?: OtpPurpose;
+  purpose: OtpPurpose; // ✅ REQUIRED (security fix)
 
-  @IsString()
   @IsOptional()
+  @IsString()
+  @trim()
+  @MaxLength(100)
   fileId?: string;
 }
 
@@ -61,8 +74,10 @@ export class RequestOtpDto {
   @IsEnum(OtpPurpose)
   purpose: OtpPurpose;
 
-  @IsString()
   @IsOptional()
+  @IsString()
+  @trim()
+  @MaxLength(100)
   fileId?: string;
 }
 
@@ -71,11 +86,12 @@ export class RequestOtpDto {
  */
 export class ResendOtpDto {
   @IsEmail()
-  @Transform(({ value }) => value.toLowerCase().trim())
+  @trim()
+  @Transform(({ value }) => value.toLowerCase())
   email: string;
 
-  @IsEnum(OtpPurpose)
   @IsOptional()
+  @IsEnum(OtpPurpose)
   purpose?: OtpPurpose;
 }
 
@@ -84,7 +100,8 @@ export class ResendOtpDto {
  */
 export class ForgotPasswordDto {
   @IsEmail()
-  @Transform(({ value }) => value.toLowerCase().trim())
+  @trim()
+  @Transform(({ value }) => value.toLowerCase())
   email: string;
 }
 
@@ -93,16 +110,19 @@ export class ForgotPasswordDto {
  */
 export class ResetPasswordDto {
   @IsEmail()
-  @Transform(({ value }) => value.toLowerCase().trim())
+  @trim()
+  @Transform(({ value }) => value.toLowerCase())
   email: string;
 
   @Matches(OTP_REGEX, { message: 'OTP must be 6 digits' })
+  @trim()
   otp: string;
 
   @IsString()
+  @trim()
   @IsNotEmpty()
   @MinLength(8)
-  @MaxLength(32)
+  @MaxLength(64) // ✅ increased
   @Matches(PASSWORD_REGEX, {
     message:
       'Password must include uppercase, lowercase, number and special character',

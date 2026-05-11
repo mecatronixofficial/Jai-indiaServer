@@ -11,6 +11,7 @@ export type UserDocument = User & Document;
     virtuals: true,
     transform: function (_doc, ret: any) {
       delete ret.password;
+      delete ret.refreshToken;
       delete ret.__v;
       return ret;
     },
@@ -22,14 +23,19 @@ export class User {
 
   @Prop({
     required: true,
-    unique: true, // ✔ keeps index here
     lowercase: true,
     trim: true,
+    unique: true, // ✅ THIS IS ENOUGH
+    index: true,
   })
   email: string;
 
   @Prop({ required: true, select: false })
   password: string;
+
+  // 🔐 Refresh Token (hashed)
+  @Prop({ type: String, default: null, select: false })
+  refreshToken: string | null;
 
   @Prop({
     type: String,
@@ -59,7 +65,7 @@ export class User {
   })
   phone: string;
 
-  @Prop({ default: 0 })
+  @Prop({ default: 0, select: false }) // 🔐 hide internal security field
   tokenVersion: number;
 
   @Prop({
@@ -72,13 +78,29 @@ export class User {
 export const UserSchema = SchemaFactory.createForClass(User);
 
 /* =========================
-   INDEXES (ONLY HERE)
+   INDEXES (PRO LEVEL)
 ========================= */
 
-UserSchema.index({ role: 1 });
-UserSchema.index({ isActive: 1 });
-UserSchema.index({ createdBy: 1 });
+// 🔍 Search optimization
+UserSchema.index({ name: 1 });
+
+// 🔐 Role + status queries
 UserSchema.index({ role: 1, isActive: 1 });
+
+// 👤 Ownership queries
+UserSchema.index({ createdBy: 1 });
+
+/* =========================
+   MIDDLEWARE (PRO)
+========================= */
+
+// 🔐 Ensure email always lowercase
+UserSchema.pre('save', function (next) {
+  if (this.email) {
+    this.email = this.email.toLowerCase();
+  }
+  next();
+});
 
 /* =========================
    VIRTUALS
