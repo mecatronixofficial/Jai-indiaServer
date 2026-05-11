@@ -141,9 +141,10 @@ export class OtpService {
     expiryMinutes: number,
   ): Promise<void> {
     const purposeLabels: Record<OtpPurpose, string> = {
-      [OtpPurpose.LOGIN]: 'Login Verification',
-      [OtpPurpose.DELETE_FILE]: 'File Deletion Confirmation',
       [OtpPurpose.RESET_PASSWORD]: 'Password Reset',
+      [OtpPurpose.DELETE_FILE]: 'File Deletion Confirmation',
+      [OtpPurpose.CHANGE_EMAIL]: 'Email Change Verification',
+      [OtpPurpose.HIGH_RISK_ACTION]: 'Security Verification',
     };
 
     const subject = `[Jai-India FileTransfer] ${purposeLabels[purpose]} OTP`;

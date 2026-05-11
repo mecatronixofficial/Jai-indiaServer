@@ -2,13 +2,14 @@ import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
 import { UsersService } from '../../users/users.service';
 
 export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
-  tokenVersion: number; // ✅ make required if using versioning
+  tokenVersion: number;
   iat?: number;
   exp?: number;
 }
@@ -24,55 +25,51 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const secret = configService.get<string>('jwt.secret');
 
     if (!secret) {
-      throw new Error('JWT_SECRET is missing in environment variables');
+      throw new Error('JWT secret is missing');
     }
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (req: Request) => {
+          if (!req || !req.cookies) return null;
+          return req.cookies['access_token'] || null;
+        },
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       secretOrKey: secret,
+      issuer: 'jai-india-api',
+      audience: 'jai-india-users',
+      ignoreExpiration: false,
+      passReqToCallback: true,
+      clockTolerance: 5,
     });
   }
 
-  async validate(payload: JwtPayload) {
-    // 🔒 Basic payload validation
-    if (!payload?.sub) {
-      this.logger.warn('JWT failed: missing subject');
-      throw new UnauthorizedException('Invalid token');
+  async validate(req: Request, payload: JwtPayload) {
+    try {
+      if (!payload?.sub) {
+        throw new UnauthorizedException('Invalid token');
+      }
+
+      const user = await this.usersService.findAuthUserById(payload.sub);
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      if (!user.isActive) {
+        throw new UnauthorizedException('Account deactivated');
+      }
+
+      if (user.tokenVersion !== payload.tokenVersion) {
+        throw new UnauthorizedException('Session expired');
+      }
+
+      return user;
+    } catch (error) {
+      this.logger.warn(`JWT validation failed: ${error?.message || error}`);
+
+      throw new UnauthorizedException('Unauthorized');
     }
-
-    const user = await this.usersService.findById(payload.sub);
-
-    if (!user) {
-      this.logger.warn(`JWT failed: user not found (${payload.sub})`);
-      throw new UnauthorizedException('Invalid token');
-    }
-
-    if (!user.isActive) {
-      this.logger.warn(`JWT failed: inactive user (${user.email})`);
-      throw new UnauthorizedException('Account is deactivated');
-    }
-
-    // 🔥 Token version check (recommended)
-    if (user.tokenVersion !== payload.tokenVersion) {
-      this.logger.warn(`JWT failed: token version mismatch (${user.email})`);
-      throw new UnauthorizedException('Session expired');
-    }
-
-    // 🔥 Soft delete check (if implemented in schema)
-    if (user.isDeleted) {
-      this.logger.warn(`JWT failed: deleted user (${user.email})`);
-      throw new UnauthorizedException('Account removed');
-    }
-
-    // ✅ Return safe user object
-    return {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      lastLoginAt: user.lastLoginAt,
-    };
   }
 }

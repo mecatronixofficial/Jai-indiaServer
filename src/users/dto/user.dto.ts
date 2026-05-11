@@ -11,10 +11,30 @@ import {
   IsNumber,
   Min,
   Max,
+  IsPositive,
 } from 'class-validator';
 
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { Role } from '../../common/enums';
+
+/* =========================
+   COMMON TRANSFORMS
+========================= */
+const normalizeString = () =>
+  Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  );
+
+const normalizeEmail = () =>
+  Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase().trim() : value,
+  );
+
+/* =========================
+   PASSWORD REGEX (IMPROVED)
+========================= */
+const PASSWORD_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).+$/;
 
 /* =========================
    CREATE USER DTO
@@ -23,22 +43,21 @@ export class CreateUserDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @normalizeString()
   name: string;
 
   @IsEmail()
   @IsNotEmpty()
+  @normalizeEmail()
   email: string;
 
   @IsString()
   @MinLength(8)
   @MaxLength(50)
-  @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
-    {
-      message:
-        'Password must contain uppercase, lowercase, number and special character',
-    },
-  )
+  @Matches(PASSWORD_REGEX, {
+    message:
+      'Password must include uppercase, lowercase, number, and symbol',
+  })
   password: string;
 
   @IsEnum(Role)
@@ -48,6 +67,7 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   @MaxLength(100)
+  @normalizeString()
   department?: string;
 
   @IsString()
@@ -65,11 +85,13 @@ export class UpdateUserDto {
   @IsString()
   @IsOptional()
   @MaxLength(100)
+  @normalizeString()
   name?: string;
 
   @IsString()
   @IsOptional()
   @MaxLength(100)
+  @normalizeString()
   department?: string;
 
   @IsString()
@@ -82,6 +104,13 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  // 🔐 Prevent accidental role/email injection
+  // (explicitly not allowed here)
+   // ✅ ADD THIS
+  @IsEnum(Role)
+  @IsOptional()
+  role?: Role;
 }
 
 /* =========================
@@ -95,13 +124,10 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(8)
   @MaxLength(50)
-  @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
-    {
-      message:
-        'Password must contain uppercase, lowercase, number and special character',
-    },
-  )
+  @Matches(PASSWORD_REGEX, {
+    message:
+      'Password must include uppercase, lowercase, number, and symbol',
+  })
   newPassword: string;
 }
 
@@ -110,6 +136,7 @@ export class ChangePasswordDto {
 ========================= */
 export class UpdateQuotaDto {
   @IsNumber()
+  @IsPositive()
   @Min(100 * 1024 * 1024) // 100MB
   @Max(1024 * 1024 * 1024 * 1024) // 1TB
   @Type(() => Number)

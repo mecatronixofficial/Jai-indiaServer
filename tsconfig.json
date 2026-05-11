@@ -27,7 +27,8 @@
       "@transactions/*": ["src/transactions/*"],
       "@common/*": ["src/common/*"],
       "@config/*": ["src/config/*"],
-      "@r2/*": ["src/r2/*"]
+      "@r2/*": ["src/r2/*"],
     }
   }
+
 }

@@ -15,33 +15,32 @@ import { TransactionsModule } from '../transactions/transactions.module';
   imports: [
     ConfigModule,
 
-    // ✅ JWT Authentication Strategy
     PassportModule.register({
       defaultStrategy: 'jwt',
       session: false,
     }),
 
-    // ✅ JWT Config (secure + validated)
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => {
+      useFactory: (configService: ConfigService) => {
         const secret = configService.get<string>('jwt.secret');
 
         if (!secret) {
-          throw new Error('❌ JWT_SECRET is missing in environment variables');
+          throw new Error('JWT secret is not configured');
         }
 
         return {
           secret,
           signOptions: {
-            expiresIn: configService.get<string>('jwt.expiresIn', '7d'),
+            expiresIn: configService.get<string>('jwt.expiresIn', '1d'), // 🔐 safer default
+            issuer: 'your-app',        // ✅ add
+            audience: 'your-app-users' // ✅ add
           },
         };
       },
     }),
 
-    // ✅ Avoid circular dependency issues
     forwardRef(() => UsersModule),
     forwardRef(() => OtpModule),
     TransactionsModule,
@@ -51,7 +50,9 @@ import { TransactionsModule } from '../transactions/transactions.module';
 
   providers: [AuthService, JwtStrategy],
 
-  // ✅ Export for global usage
-  exports: [AuthService, JwtModule, PassportModule],
+  exports: [
+    AuthService,
+    JwtModule, // ✅ needed if other modules sign tokens
+  ],
 })
 export class AuthModule {}
