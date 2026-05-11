@@ -4,8 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 
 import helmet from 'helmet';
-import * as compression from 'compression';
-import * as cookieParser from 'cookie-parser';
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
 
 import { AppModule } from './app.module';
 
@@ -22,8 +22,7 @@ async function bootstrap() {
   const env = configService.get<string>('app.env') ?? 'development';
 
   const frontendUrl =
-    configService.get<string>('FRONTEND_URL') ||
-    'http://localhost:3000';
+    configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
 
   const isProd = env === 'production';
 
