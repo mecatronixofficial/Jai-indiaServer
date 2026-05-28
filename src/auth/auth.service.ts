@@ -4,49 +4,77 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
 import { UsersService } from '../users/users.service';
 import { OtpService } from '../otp/otp.service';
-
-import { LoginDto, VerifyOtpDto } from './dto/auth.dto';
+import { LoginDto, ResetPasswordDto, VerifyOtpDto } from './dto/auth.dto';
 import { OtpPurpose } from '../common/enums';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
+const REFRESH_TOKEN_HASH_ROUNDS = 10;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+
+/** Tag for refresh tokens vs access tokens — prevents token swap attacks. */
+type TokenType = 'access' | 'refresh';
+
+interface SignedPayload extends JwtPayload {
+  type: TokenType;
+}
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly issuer: string;
+  private readonly audience: string;
+  private readonly accessSecret: string;
+  private readonly refreshSecret: string;
 
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly otpService: OtpService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.issuer = this.configService.get<string>('jwt.issuer') ?? 'jai-india-api';
+    this.audience =
+      this.configService.get<string>('jwt.audience') ?? 'jai-india-users';
+
+    // Use separate secrets for access vs refresh if available, otherwise
+    // fall back to a shared secret. Two secrets is stronger — leaking your
+    // access-token signing key shouldn't let an attacker forge refresh tokens.
+    const sharedSecret = this.configService.get<string>('jwt.secret');
+    this.accessSecret =
+      this.configService.get<string>('jwt.accessSecret') ?? sharedSecret ?? '';
+    this.refreshSecret =
+      this.configService.get<string>('jwt.refreshSecret') ?? sharedSecret ?? '';
+
+    if (!this.accessSecret || !this.refreshSecret) {
+      throw new Error('JWT secrets are not configured');
+    }
+  }
 
   /* =========================
-     🔐 LOGIN (ACCESS + REFRESH)
+     LOGIN
   ========================= */
   async login(dto: LoginDto, ip: string) {
-    const email = dto.email.toLowerCase();
+    const email = this.normalizeEmail(dto.email);
 
     const user = await this.usersService.findByEmail(email, true);
 
-    if (!user) {
-      this.logger.warn(`Login failed: user not found (${email}) | IP: ${ip}`);
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    // Bcrypt-compare even when the user doesn't exist, to keep response
+    // timing constant. Prevents user enumeration via timing analysis.
+    const dummyHash =
+      '$2b$12$abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUV';
+    const passwordHash = user?.password ?? dummyHash;
+    const isMatch = await bcrypt.compare(dto.password, passwordHash);
 
-    const isMatch = await this.usersService.validatePassword(
-      user,
-      dto.password,
-    );
-
-    if (!isMatch) {
-      this.logger.warn(`Login failed: wrong password (${email}) | IP: ${ip}`);
+    if (!user || !isMatch) {
+      this.logger.warn(`Login failed → ${email} | IP: ${ip}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -54,34 +82,22 @@ export class AuthService {
       throw new UnauthorizedException('Account deactivated');
     }
 
-    // 🔥 invalidate old sessions
+    // Invalidate previous sessions (single-session policy).
+    // ⚠️ If you want multi-device login, remove this.
     await this.usersService.incrementTokenVersion(user._id.toString());
 
-    // 🔁 fetch updated user
+    // Re-fetch to pick up the new tokenVersion.
     const updatedUser = await this.usersService.findAuthUserById(
       user._id.toString(),
     );
+    if (!updatedUser) throw new UnauthorizedException('User not found');
 
-    // ✅ IMPORTANT FIX (NULL CHECK)
-    if (!updatedUser) {
-      this.logger.error(`User disappeared after token update: ${email}`);
-      throw new UnauthorizedException('User not found');
-    }
-
-    const payload: JwtPayload = {
+    const { accessToken, refreshToken } = await this.issueTokens({
       sub: updatedUser._id.toString(),
       email: updatedUser.email,
       role: updatedUser.role,
       tokenVersion: updatedUser.tokenVersion,
-    };
-
-    const accessToken = this.signAccessToken(payload);
-    const refreshToken = this.signRefreshToken(payload);
-
-    await this.usersService.setRefreshToken(
-      updatedUser._id.toString(),
-      await bcrypt.hash(refreshToken, 10),
-    );
+    });
 
     await this.usersService.updateLastLogin(updatedUser._id.toString());
 
@@ -100,133 +116,146 @@ export class AuthService {
   }
 
   /* =========================
-     🔁 REFRESH TOKEN (ROTATION)
+     REFRESH
   ========================= */
-  async refresh(cookies: any) {
-    const token = cookies?.refresh_token;
-
-    if (!token) {
-      throw new UnauthorizedException('No refresh token');
+  async refresh(refreshToken: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token missing');
     }
 
-    let payload: JwtPayload;
-
+    let payload: SignedPayload;
     try {
-      payload = this.jwtService.verify(token);
-    } catch (err) {
-      this.logger.warn('Refresh token expired/invalid');
+      payload = await this.jwtService.verifyAsync<SignedPayload>(refreshToken, {
+        secret: this.refreshSecret,
+        issuer: this.issuer,
+        audience: this.audience,
+      });
+    } catch {
       throw new UnauthorizedException('Session expired');
     }
 
-    const user = await this.usersService.findAuthUserById(payload.sub);
+    // Reject access tokens being used as refresh tokens.
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('Invalid token type');
+    }
 
+    const user = await this.usersService.findAuthUserById(payload.sub);
     if (!user || !user.refreshToken) {
       throw new UnauthorizedException('Invalid session');
     }
 
-    const isMatch = await bcrypt.compare(token, user.refreshToken);
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account deactivated');
+    }
 
+    // Token-version check: invalidates this refresh token after password change,
+    // logout-all-devices, or role change.
+    if (user.tokenVersion !== payload.tokenVersion) {
+      throw new UnauthorizedException('Session expired');
+    }
+
+    const isMatch = await bcrypt.compare(refreshToken, user.refreshToken);
     if (!isMatch) {
+      // Token mismatch can indicate token theft — bump tokenVersion to
+      // invalidate every session for safety.
+      await this.usersService.incrementTokenVersion(user._id.toString());
+      await this.usersService.removeRefreshToken(user._id.toString());
+      this.logger.warn(
+        `Refresh token mismatch → ${user.email} — all sessions revoked`,
+      );
       throw new UnauthorizedException('Session mismatch');
     }
 
-    const newPayload: JwtPayload = {
+    const { accessToken, refreshToken: newRefresh } = await this.issueTokens({
       sub: user._id.toString(),
       email: user.email,
       role: user.role,
       tokenVersion: user.tokenVersion,
-    };
+    });
 
-    const newAccessToken = this.signAccessToken(newPayload);
-    const newRefreshToken = this.signRefreshToken(newPayload);
-
-    // 🔄 ROTATE refresh token
-    await this.usersService.setRefreshToken(
-      user._id.toString(),
-      await bcrypt.hash(newRefreshToken, 10),
-    );
-
-    this.logger.log(`Token refreshed → ${user.email}`);
-
-    return {
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-    };
+    return { accessToken, refreshToken: newRefresh };
   }
 
   /* =========================
-     🚪 LOGOUT
+     LOGOUT
   ========================= */
   async logout(userId: string) {
     await this.usersService.removeRefreshToken(userId);
     this.logger.log(`Logout → ${userId}`);
   }
 
+  /**
+   * Extracts userId from a refresh token *without throwing* on invalid tokens.
+   * Used by the logout endpoint, which must work even for expired/malformed
+   * tokens — the user's intent is to log out, and we honor that regardless.
+   *
+   * Returns null for any verification failure.
+   */
+  async getUserIdFromRefreshToken(token: string): Promise<string | null> {
+    if (!token) return null;
+
+    try {
+      const payload = await this.jwtService.verifyAsync<SignedPayload>(token, {
+        secret: this.refreshSecret,
+        issuer: this.issuer,
+        audience: this.audience,
+        // Expired tokens should still resolve to a userId for logout purposes.
+        ignoreExpiration: true,
+      });
+      return payload?.sub ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   /* =========================
-     🔐 VERIFY OTP
+     VERIFY OTP
   ========================= */
   async verifyOtp(dto: VerifyOtpDto, ip: string) {
-    const email = dto.email.toLowerCase();
-
+    const email = this.normalizeEmail(dto.email);
     const user = await this.usersService.findByEmail(email);
 
-    if (!user) {
-      throw new BadRequestException('Invalid request');
-    }
-
-    if (!dto.purpose) {
-      throw new BadRequestException('OTP purpose required');
-    }
+    if (!user) throw new BadRequestException('Invalid request');
 
     await this.otpService.verifyOtp(user._id.toString(), dto.otp, dto.purpose);
 
-    this.logger.log(`OTP verified → ${email} | ${dto.purpose} | IP: ${ip}`);
+    this.logger.log(`OTP verified → ${email} | IP: ${ip}`);
 
     return { message: 'OTP verified successfully' };
   }
 
   /* =========================
-     🔑 FORGOT PASSWORD
+     FORGOT PASSWORD
   ========================= */
   async forgotPassword(email: string) {
-    const normalizedEmail = email.toLowerCase();
+    const normalized = this.normalizeEmail(email);
+    const user = await this.usersService.findByEmail(normalized);
 
-    const user = await this.usersService.findByEmail(normalizedEmail);
-
-    if (!user) {
-      return {
-        message: 'If that email exists, an OTP has been sent.',
-      };
+    // Always return the same message — prevents email enumeration.
+    if (user && user.isActive) {
+      try {
+        await this.otpService.sendOtp(
+          user._id.toString(),
+          user.email,
+          OtpPurpose.RESET_PASSWORD,
+        );
+      } catch (err) {
+        // Don't leak send-failures to the caller.
+        this.logger.error(`OTP send failed for ${normalized}`, err as Error);
+      }
     }
 
-    await this.otpService.sendOtp(
-      user._id.toString(),
-      user.email,
-      OtpPurpose.RESET_PASSWORD,
-    );
-
-    this.logger.log(`Reset OTP sent → ${normalizedEmail}`);
-
-    return {
-      message: 'If that email exists, an OTP has been sent.',
-    };
+    return { message: 'If that email exists, an OTP has been sent.' };
   }
 
   /* =========================
-     🔑 RESET PASSWORD
+     RESET PASSWORD
   ========================= */
-  async resetPassword(dto: {
-    email: string;
-    otp: string;
-    newPassword: string;
-  }) {
-    const email = dto.email.toLowerCase();
+  async resetPassword(dto: ResetPasswordDto) {
+    const email = this.normalizeEmail(dto.email);
+    const user = await this.usersService.findByEmail(email, true);
 
-    const user = await this.usersService.findByEmail(email);
-
-    if (!user) {
-      throw new BadRequestException('Invalid request');
-    }
+    if (!user) throw new BadRequestException('Invalid request');
 
     await this.otpService.verifyOtp(
       user._id.toString(),
@@ -235,7 +264,19 @@ export class AuthService {
     );
 
     if (!this.isStrongPassword(dto.newPassword)) {
-      throw new BadRequestException('Weak password');
+      throw new BadRequestException(
+        'Password must be 8+ chars with uppercase, lowercase, number and symbol',
+      );
+    }
+
+    // Reject reuse of the current password.
+    if (user.password) {
+      const samePassword = await bcrypt.compare(dto.newPassword, user.password);
+      if (samePassword) {
+        throw new BadRequestException(
+          'New password must be different from the current password',
+        );
+      }
     }
 
     await this.usersService.forceSetPassword(
@@ -243,7 +284,8 @@ export class AuthService {
       dto.newPassword,
     );
 
-    // 🔥 invalidate all sessions
+    // forceSetPassword already bumps tokenVersion and clears refreshToken,
+    // but call them again for safety — these are idempotent.
     await this.usersService.incrementTokenVersion(user._id.toString());
     await this.usersService.removeRefreshToken(user._id.toString());
 
@@ -253,28 +295,48 @@ export class AuthService {
   }
 
   /* =========================
-     🔒 TOKEN HELPERS
+     TOKEN HELPERS
   ========================= */
-  private signAccessToken(payload: JwtPayload) {
-    return this.jwtService.sign(payload, {
-      expiresIn: ACCESS_TOKEN_EXPIRY,
-      issuer: 'jai-india-api',
-      audience: 'jai-india-users',
-    });
-  }
+  private async issueTokens(payload: JwtPayload): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
+    const accessToken = await this.jwtService.signAsync(
+      { ...payload, type: 'access' satisfies TokenType },
+      {
+        secret: this.accessSecret,
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+        issuer: this.issuer,
+        audience: this.audience,
+      },
+    );
 
-  private signRefreshToken(payload: JwtPayload) {
-    return this.jwtService.sign(payload, {
-      expiresIn: REFRESH_TOKEN_EXPIRY,
-      issuer: 'jai-india-api',
-      audience: 'jai-india-users',
-    });
+    const refreshToken = await this.jwtService.signAsync(
+      { ...payload, type: 'refresh' satisfies TokenType },
+      {
+        secret: this.refreshSecret,
+        expiresIn: REFRESH_TOKEN_EXPIRY,
+        issuer: this.issuer,
+        audience: this.audience,
+      },
+    );
+
+    await this.usersService.setRefreshToken(
+      payload.sub,
+      await bcrypt.hash(refreshToken, REFRESH_TOKEN_HASH_ROUNDS),
+    );
+
+    return { accessToken, refreshToken };
   }
 
   /* =========================
-     🔒 PASSWORD VALIDATION
+     HELPERS
   ========================= */
   private isStrongPassword(password: string): boolean {
-    return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
+    return PASSWORD_REGEX.test(password);
+  }
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
   }
 }

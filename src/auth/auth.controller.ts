@@ -1,27 +1,28 @@
 import {
-  Controller,
-  Post,
   Body,
+  Controller,
+  Get,
   HttpCode,
   HttpStatus,
-  UseGuards,
-  Get,
   Logger,
-  Res,
+  Post,
   Req,
+  Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
-import { Response, Request, CookieOptions } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
+import { CookieOptions, Request, Response } from 'express';
 
 import { AuthService } from './auth.service';
 import {
-  LoginDto,
-  VerifyOtpDto,
-  RequestOtpDto,
   ForgotPasswordDto,
-  ResetPasswordDto,
+  LoginDto,
+  RequestOtpDto,
   ResendOtpDto,
+  ResetPasswordDto,
+  VerifyOtpDto,
 } from './dto/auth.dto';
 
 import { JwtAuthGuard, Public } from '../common/guards/jwt-auth.guard';
@@ -34,31 +35,74 @@ import { OtpPurpose, TransactionAction } from '../common/enums';
 
 const ACCESS_COOKIE = 'access_token';
 const REFRESH_COOKIE = 'refresh_token';
+const ACCESS_TOKEN_AGE = 1000 * 60 * 15; // 15 min
+const REFRESH_TOKEN_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+interface AuthUser {
+  _id: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  tokenVersion: number;
+}
+
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
-  private getCookieOptions(isProd: boolean): CookieOptions {
-    return {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      path: '/',
-    };
-  }
+  private readonly isProd: boolean;
 
   constructor(
     private readonly authService: AuthService,
     private readonly otpService: OtpService,
     private readonly transactionsService: TransactionsService,
     private readonly usersService: UsersService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.isProd = this.configService.get<string>('app.env') === 'production';
+  }
 
   /* =========================
-     🔐 LOGIN
+     COOKIE HELPERS
+  ========================= */
+
+  private getCookieOptions(): CookieOptions {
+    return {
+      httpOnly: true,
+      secure: this.isProd,
+      sameSite: this.isProd ? 'none' : 'lax',
+      path: '/',
+    };
+  }
+
+  private setAuthCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+  ): void {
+    const base = this.getCookieOptions();
+    res.cookie(ACCESS_COOKIE, accessToken, {
+      ...base,
+      maxAge: ACCESS_TOKEN_AGE,
+    });
+    res.cookie(REFRESH_COOKIE, refreshToken, {
+      ...base,
+      maxAge: REFRESH_TOKEN_AGE,
+    });
+  }
+
+  private clearAuthCookies(res: Response): void {
+    const base = this.getCookieOptions();
+    res.clearCookie(ACCESS_COOKIE, base);
+    res.clearCookie(REFRESH_COOKIE, base);
+  }
+
+  /* =========================
+     LOGIN
   ========================= */
   @Post('login')
-  @HttpCode(HttpStatus.OK)
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
     @ClientIp() ip: string,
@@ -66,81 +110,100 @@ export class AuthController {
   ) {
     const result = await this.authService.login(dto, ip);
 
-    const isProd = process.env.NODE_ENV === 'production';
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
 
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, isProd);
     await this.transactionsService.log({
       userId: result.user.id,
       action: TransactionAction.LOGIN,
       ip,
     });
 
-    return {
-      message: 'Login successful',
-      data: { user: result.user },
-    };
+    return { message: 'Login successful', data: { user: result.user } };
   }
 
   /* =========================
-     🔁 REFRESH TOKEN
+     REFRESH
   ========================= */
   @Post('refresh')
   @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const isProd = process.env.NODE_ENV === 'production';
+    const refreshToken = req.cookies?.[REFRESH_COOKIE];
 
-    const refreshToken = req.cookies?.refresh_token;
-
-    if (!refreshToken || typeof refreshToken !== 'string') {
-      throw new UnauthorizedException('Invalid refresh token');
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token missing');
     }
 
-    const accessToken = await this.authService.refresh(refreshToken);
+    const result = await this.authService.refresh(refreshToken);
 
-    res.cookie(ACCESS_COOKIE, accessToken, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isProd,
-      maxAge: 1000 * 60 * 15,
-      path: '/',
-    });
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
 
-    return {
-      message: 'Token refreshed',
-    };
+    return { message: 'Token refreshed successfully' };
   }
 
   /* =========================
-     🚪 LOGOUT
+     LOGOUT
+     ✅ Public — works even with expired/missing tokens.
+     ✅ Idempotent — calling logout when already logged out returns 200.
   ========================= */
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
+  @Public()
+  @HttpCode(HttpStatus.OK)
   async logout(
-    @CurrentUser() user: any,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
+    @ClientIp() ip: string,
   ) {
-    const isProd = process.env.NODE_ENV === 'production';
+    const refreshToken = req.cookies?.[REFRESH_COOKIE];
 
-    await this.authService.logout(user._id);
+    // Try to revoke the session on the server, but don't fail if we can't.
+    // The user's intent is to log out — honor that regardless.
+    if (refreshToken) {
+      try {
+        const userId =
+          await this.authService.getUserIdFromRefreshToken?.(refreshToken);
+        if (userId) {
+          await this.authService.logout(userId);
 
-    const cookieOptions = {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isProd,
-      path: '/',
-    } satisfies CookieOptions;
+          // Audit log — best effort
+          await this.transactionsService
+            .log({
+              userId,
+              action: TransactionAction.LOGOUT,
+              ip,
+            })
+            .catch(() => undefined);
+        }
+      } catch (err) {
+        // Token may be expired, malformed, or already revoked.
+        // Still proceed to clear cookies.
+        if (!this.isProd) {
+          this.logger.debug(`Logout token revoke skipped: ${String(err)}`);
+        }
+      }
+    }
 
-    res.clearCookie(ACCESS_COOKIE, cookieOptions);
-    res.clearCookie(REFRESH_COOKIE, cookieOptions);
+    this.clearAuthCookies(res);
 
     return { message: 'Logged out successfully' };
   }
 
   /* =========================
-     🔐 VERIFY OTP
+     ME
+  ========================= */
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  async me(@CurrentUser() user: AuthUser) {
+    const fullUser = await this.usersService.findById(user._id); // ← added
+    return { message: 'User retrieved successfully', data: fullUser };
+  }
+
+  /* =========================
+     VERIFY OTP
   ========================= */
   @Post('verify-otp')
   @Public()
@@ -148,8 +211,7 @@ export class AuthController {
   async verifyOtp(@Body() dto: VerifyOtpDto, @ClientIp() ip: string) {
     await this.authService.verifyOtp(dto, ip);
 
-    const user = await this.usersService.findByEmail(dto.email);
-
+    const user = await this.usersService.findByEmail(dto.email.toLowerCase());
     if (user) {
       await this.transactionsService.log({
         userId: user._id.toString(),
@@ -158,128 +220,83 @@ export class AuthController {
       });
     }
 
-    return {
-      message: 'OTP verified successfully',
-    };
+    return { message: 'OTP verified successfully' };
   }
 
   /* =========================
-     🔁 RESEND OTP
+     RESEND OTP
   ========================= */
   @Post('resend-otp')
   @Public()
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   async resendOtp(@Body() dto: ResendOtpDto, @ClientIp() ip: string) {
     const email = dto.email.toLowerCase();
-
     const user = await this.usersService.findByEmail(email);
 
     if (user) {
-      const purpose = dto.purpose || OtpPurpose.RESET_PASSWORD;
+      await this.otpService.sendOtp(
+        user._id.toString(),
+        user.email,
+        dto.purpose ?? OtpPurpose.RESET_PASSWORD,
+      );
 
-      await this.otpService.sendOtp(user._id.toString(), user.email, purpose);
-
-      this.logger.log(`OTP resent → ${email} | ${purpose} | IP: ${ip}`);
+      if (!this.isProd) {
+        this.logger.log(
+          `OTP resent to ${email} for ${dto.purpose} | IP: ${ip}`,
+        );
+      }
     }
 
-    // 🔐 Prevent email enumeration
-    return {
-      message: 'If that email exists, an OTP has been resent.',
-    };
+    return { message: 'If that email exists, an OTP has been resent.' };
   }
 
   /* =========================
-     🔐 REQUEST OTP (PROTECTED)
+     REQUEST OTP
   ========================= */
   @Post('request-otp')
   @UseGuards(JwtAuthGuard)
   async requestOtp(
     @Body() dto: RequestOtpDto,
-    @CurrentUser() currentUser: any,
+    @CurrentUser() user: AuthUser,
     @ClientIp() ip: string,
   ) {
     const result = await this.otpService.sendOtp(
-      currentUser._id.toString(),
-      currentUser.email,
+      user._id,
+      user.email,
       dto.purpose,
       dto.fileId,
     );
 
     await this.transactionsService.log({
-      userId: currentUser._id.toString(),
+      userId: user._id,
       action: TransactionAction.OTP_REQUEST,
       ip,
     });
 
-    return {
-      message: result.message,
-    };
+    return { message: result.message };
   }
 
   /* =========================
-     👤 GET ME
-  ========================= */
-  @Get('me')
-  @UseGuards(JwtAuthGuard)
-  async me(@CurrentUser() currentUser: any) {
-    return {
-      message: 'User retrieved',
-      data: currentUser,
-    };
-  }
-
-  /* =========================
-     🔑 FORGOT PASSWORD
+     FORGOT PASSWORD
   ========================= */
   @Post('forgot-password')
   @Public()
   @Throttle({ default: { limit: 3, ttl: 60000 } })
-  async forgotPassword(@Body() dto: ForgotPasswordDto, @ClientIp() ip: string) {
-    const result = await this.authService.forgotPassword(dto.email);
-
-    this.logger.log(`Forgot password → ${dto.email} | IP: ${ip}`);
-
-    return {
-      message: result.message,
-    };
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    const result = await this.authService.forgotPassword(
+      dto.email.toLowerCase(),
+    );
+    return { message: result.message };
   }
 
   /* =========================
-     🔑 RESET PASSWORD
+     RESET PASSWORD
   ========================= */
   @Post('reset-password')
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  async resetPassword(@Body() dto: ResetPasswordDto, @ClientIp() ip: string) {
+  async resetPassword(@Body() dto: ResetPasswordDto) {
     const result = await this.authService.resetPassword(dto);
-
-    this.logger.log(`Password reset → ${dto.email} | IP: ${ip}`);
-
-    return {
-      message: result.message,
-    };
-  }
-
-  /* =========================
-     🍪 COOKIE HELPER
-  ========================= */
-
-  private setAuthCookies(
-    res: Response,
-    accessToken: string,
-    refreshToken: string,
-    isProd: boolean,
-  ) {
-    const cookieOptions = this.getCookieOptions(isProd);
-
-    res.cookie(ACCESS_COOKIE, accessToken, {
-      ...cookieOptions,
-      maxAge: 1000 * 60 * 15,
-    });
-
-    res.cookie(REFRESH_COOKIE, refreshToken, {
-      ...cookieOptions,
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-    });
+    return { message: result.message };
   }
 }

@@ -31,7 +31,7 @@ const normalizeEmail = () =>
   );
 
 /* =========================
-   PASSWORD REGEX (IMPROVED)
+   PASSWORD REGEX
 ========================= */
 const PASSWORD_REGEX =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).+$/;
@@ -55,8 +55,7 @@ export class CreateUserDto {
   @MinLength(8)
   @MaxLength(50)
   @Matches(PASSWORD_REGEX, {
-    message:
-      'Password must include uppercase, lowercase, number, and symbol',
+    message: 'Password must include uppercase, lowercase, number, and symbol',
   })
   password: string;
 
@@ -88,6 +87,12 @@ export class UpdateUserDto {
   @normalizeString()
   name?: string;
 
+  // ✅ ADDED — required so users (and admins) can update email
+  @IsEmail()
+  @IsOptional()
+  @normalizeEmail()
+  email?: string;
+
   @IsString()
   @IsOptional()
   @MaxLength(100)
@@ -105,9 +110,6 @@ export class UpdateUserDto {
   @IsOptional()
   isActive?: boolean;
 
-  // 🔐 Prevent accidental role/email injection
-  // (explicitly not allowed here)
-   // ✅ ADD THIS
   @IsEnum(Role)
   @IsOptional()
   role?: Role;
@@ -125,8 +127,7 @@ export class ChangePasswordDto {
   @MinLength(8)
   @MaxLength(50)
   @Matches(PASSWORD_REGEX, {
-    message:
-      'Password must include uppercase, lowercase, number, and symbol',
+    message: 'Password must include uppercase, lowercase, number, and symbol',
   })
   newPassword: string;
 }

@@ -15,11 +15,17 @@ import { TransactionsModule } from '../transactions/transactions.module';
   imports: [
     ConfigModule,
 
+    /* =========================
+       PASSPORT JWT
+    ========================= */
     PassportModule.register({
       defaultStrategy: 'jwt',
       session: false,
     }),
 
+    /* =========================
+       JWT CONFIG (SAFE + CLEAN)
+    ========================= */
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -27,20 +33,28 @@ import { TransactionsModule } from '../transactions/transactions.module';
         const secret = configService.get<string>('jwt.secret');
 
         if (!secret) {
-          throw new Error('JWT secret is not configured');
+          throw new Error('❌ JWT secret is not configured');
         }
 
         return {
           secret,
+
           signOptions: {
-            expiresIn: configService.get<string>('jwt.expiresIn', '1d'), // 🔐 safer default
-            issuer: 'your-app',        // ✅ add
-            audience: 'your-app-users' // ✅ add
+            expiresIn: configService.get<string>('jwt.expiresIn') ?? '15m',
+
+            // 🔐 IMPORTANT: keep consistent with JwtStrategy
+            issuer: configService.get<string>('jwt.issuer') ?? 'jai-india-api',
+            audience:
+              configService.get<string>('jwt.audience') ??
+              'jai-india-users',
           },
         };
       },
     }),
 
+    /* =========================
+       FEATURE MODULES
+    ========================= */
     forwardRef(() => UsersModule),
     forwardRef(() => OtpModule),
     TransactionsModule,
@@ -48,11 +62,14 @@ import { TransactionsModule } from '../transactions/transactions.module';
 
   controllers: [AuthController],
 
-  providers: [AuthService, JwtStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+  ],
 
   exports: [
     AuthService,
-    JwtModule, // ✅ needed if other modules sign tokens
+    JwtModule, // needed for signing/verifying tokens elsewhere
   ],
 })
 export class AuthModule {}
