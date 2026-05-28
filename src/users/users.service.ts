@@ -21,13 +21,18 @@ import { Role } from '../common/enums';
 
 const SALT_ROUNDS = 12;
 
+export interface AuthUser {
+  _id: string;
+  role: Role;
+}
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
   constructor(
     @InjectModel(User.name)
-    private userModel: Model<UserDocument>,
+    private readonly userModel: Model<UserDocument>,
   ) {}
 
   /* =========================
@@ -38,14 +43,20 @@ export class UsersService {
     createdById: string,
     creatorRole: Role,
   ): Promise<UserDocument> {
+    this.validateId(createdById);
+
     const email = this.normalizeEmail(dto.email);
 
     if (dto.role === Role.SUPERADMIN) {
       throw new ForbiddenException('Cannot create SUPERADMIN');
     }
-
     if (dto.role === Role.ADMIN && creatorRole !== Role.SUPERADMIN) {
       throw new ForbiddenException('Only SUPERADMIN can create ADMIN');
+    }
+
+    const exists = await this.userModel.exists({ email });
+    if (exists) {
+      throw new ConflictException('Email already exists');
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, SALT_ROUNDS);
@@ -55,15 +66,17 @@ export class UsersService {
         ...dto,
         email,
         password: hashedPassword,
-        role: dto.role || Role.USER,
+        role: dto.role ?? Role.USER,
         createdBy: new Types.ObjectId(createdById),
         tokenVersion: 0,
         isActive: true,
       });
-    } catch (err: any) {
-      if (err.code === 11000) {
+    } catch (err: unknown) {
+      const mongoErr = err as { code?: number; stack?: string };
+      if (mongoErr?.code === 11000) {
         throw new ConflictException('Email already exists');
       }
+      this.logger.error('Failed to create user', mongoErr?.stack);
       throw err;
     }
   }
@@ -71,21 +84,29 @@ export class UsersService {
   /* =========================
      LIST USERS
   ========================= */
-  async findAll(user: any, page = 1, limit = 20, search?: string) {
-    const query: any = {};
+  async findAll(
+    user: AuthUser,
+    page = 1,
+    limit = 20,
+    search?: string,
+  ) {
+    const query: Record<string, unknown> = {};
 
     if (user.role === Role.ADMIN) {
-      query.createdBy = user._id;
+      query.createdBy = new Types.ObjectId(user._id);
     }
 
     if (search) {
+      const escaped = this.escapeRegex(search);
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
       ];
     }
 
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const skip = (safePage - 1) * safeLimit;
 
     const [users, total] = await Promise.all([
       this.userModel
@@ -93,18 +114,19 @@ export class UsersService {
         .select('-password -refreshToken')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit)
-        .lean(),
-      this.userModel.countDocuments(query),
+        .limit(safeLimit)
+        .lean()
+        .exec(),
+      this.userModel.countDocuments(query).exec(),
     ]);
 
     return {
       users,
       pagination: {
-        page,
-        limit,
+        page: safePage,
+        limit: safeLimit,
         total,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(total / safeLimit),
       },
     };
   }
@@ -118,14 +140,18 @@ export class UsersService {
     const user = await this.userModel
       .findById(id)
       .select('-password -refreshToken')
-      .lean();
+      .lean()
+      .exec();
 
     if (!user) throw new NotFoundException('User not found');
 
     return user;
   }
 
-  async findByEmail(email: string, includePassword = false) {
+  async findByEmail(
+    email: string,
+    includePassword = false,
+  ): Promise<UserDocument | null> {
     const query = this.userModel.findOne({
       email: this.normalizeEmail(email),
     });
@@ -158,26 +184,86 @@ export class UsersService {
   /* =========================
      UPDATE USER
   ========================= */
-  async update(id: string, dto: UpdateUserDto) {
+  async update(
+    id: string,
+    dto: UpdateUserDto & { email?: string },
+    currentUser?: AuthUser,
+  ) {
     this.validateId(id);
 
-    if ((dto as any).role === Role.SUPERADMIN) {
-      throw new ForbiddenException('Cannot assign SUPERADMIN role');
+    const existingUser = await this.userModel.findById(id).lean().exec();
+    if (!existingUser) {
+      throw new NotFoundException('User not found');
     }
 
-    if ((dto as any).email) {
-      (dto as any).email = this.normalizeEmail((dto as any).email);
+    let normalizedEmail: string | undefined;
+    if (dto.email) {
+      normalizedEmail = this.normalizeEmail(dto.email);
+
+      const emailExists = await this.userModel.exists({
+        email: normalizedEmail,
+        _id: { $ne: new Types.ObjectId(id) },
+      });
+      if (emailExists) {
+        throw new ConflictException('Email already in use');
+      }
+    }
+
+    if (dto.role) {
+      if (dto.role === Role.SUPERADMIN) {
+        throw new ForbiddenException('Cannot assign SUPERADMIN role');
+      }
+
+      if (currentUser && currentUser._id === id) {
+        throw new ForbiddenException('You cannot change your own role');
+      }
+
+      if (
+        currentUser?.role === Role.ADMIN &&
+        existingUser.role &&
+        [Role.ADMIN, Role.SUPERADMIN].includes(existingUser.role)
+      ) {
+        throw new ForbiddenException('Insufficient permission');
+      }
+    }
+
+    const allowedUpdates: Record<string, unknown> = {};
+
+    if (dto.name !== undefined) allowedUpdates.name = dto.name.trim();
+    if (normalizedEmail !== undefined) allowedUpdates.email = normalizedEmail;
+    if (dto.department !== undefined) {
+      allowedUpdates.department = dto.department.trim();
+    }
+    if (dto.phone !== undefined) allowedUpdates.phone = dto.phone;
+    if (dto.role !== undefined) allowedUpdates.role = dto.role;
+    if (dto.isActive !== undefined) allowedUpdates.isActive = dto.isActive;
+
+    if (Object.keys(allowedUpdates).length === 0) {
+      throw new BadRequestException('No valid fields to update');
+    }
+
+    const sensitiveChange =
+      allowedUpdates.role !== undefined ||
+      allowedUpdates.isActive === false ||
+      allowedUpdates.email !== undefined;
+
+    if (sensitiveChange) {
+      allowedUpdates.refreshToken = null;
+    }
+
+    const updateOps: Record<string, unknown> = { $set: allowedUpdates };
+    if (sensitiveChange) {
+      updateOps.$inc = { tokenVersion: 1 };
     }
 
     const user = await this.userModel
-      .findByIdAndUpdate(id, dto, {
+      .findByIdAndUpdate(id, updateOps, {
         new: true,
         runValidators: true,
       })
       .select('-password -refreshToken')
-      .lean();
-
-    if (!user) throw new NotFoundException('User not found');
+      .lean()
+      .exec();
 
     return user;
   }
@@ -186,6 +272,8 @@ export class UsersService {
     userId: string,
     meta?: { ip?: string; userAgent?: string },
   ) {
+    this.validateId(userId);
+
     await this.userModel.findByIdAndUpdate(userId, {
       lastLoginAt: new Date(),
       ...(meta?.ip && { lastIp: meta.ip }),
@@ -193,22 +281,25 @@ export class UsersService {
     });
   }
 
+  /* =========================
+     STORAGE USAGE
+  ========================= */
   async getStorageUsage(userId: string) {
     this.validateId(userId);
 
-    const user = await this.userModel.findById(userId).lean();
-
+    const user = await this.userModel.findById(userId).lean().exec();
     if (!user) throw new NotFoundException('User not found');
 
-    // 👉 Assuming you track file sizes in another collection
-    const totalUsed = 0; // replace with real aggregation if needed
+    const totalUsed = 0; // TODO: replace with real aggregation
+    const quota = user.storageQuota ?? 0;
 
     return {
       usedBytes: totalUsed,
-      quotaBytes: user.storageQuota,
+      quotaBytes: quota,
       usedGB: +(totalUsed / 1024 ** 3).toFixed(2),
-      quotaGB: +(user.storageQuota / 1024 ** 3).toFixed(2),
-      usagePercent: +((totalUsed / user.storageQuota) * 100).toFixed(2),
+      quotaGB: +(quota / 1024 ** 3).toFixed(2),
+      usagePercent:
+        quota > 0 ? +((totalUsed / quota) * 100).toFixed(2) : 0,
     };
   }
 
@@ -216,23 +307,28 @@ export class UsersService {
      CHANGE PASSWORD
   ========================= */
   async changePassword(userId: string, dto: ChangePasswordDto) {
-    const user = await this.userModel.findById(userId).select('+password');
+    this.validateId(userId);
+
+    const user = await this.userModel
+      .findById(userId)
+      .select('+password')
+      .exec();
 
     if (!user) throw new NotFoundException('User not found');
 
     const isMatch = await bcrypt.compare(dto.currentPassword, user.password);
-
     if (!isMatch) {
       throw new BadRequestException('Current password incorrect');
     }
 
     if (dto.currentPassword === dto.newPassword) {
-      throw new BadRequestException('Password must be different');
+      throw new BadRequestException(
+        'New password must be different from current',
+      );
     }
 
     user.password = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
-
-    user.tokenVersion += 1;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     user.refreshToken = null;
 
     await user.save();
@@ -246,14 +342,19 @@ export class UsersService {
   async toggleActive(userId: string, isActive: boolean) {
     this.validateId(userId);
 
-    const user = await this.userModel.findById(userId);
-
+    const user = await this.userModel.findById(userId).exec();
     if (!user) throw new NotFoundException('User not found');
+
+    if (user.isActive === isActive) {
+      return {
+        message: `User already ${isActive ? 'active' : 'inactive'}`,
+      };
+    }
 
     user.isActive = isActive;
 
     if (!isActive) {
-      user.tokenVersion += 1;
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
       user.refreshToken = null;
     }
 
@@ -264,11 +365,11 @@ export class UsersService {
     };
   }
 
-  async deactivate(id: string) {
+  deactivate(id: string) {
     return this.toggleActive(id, false);
   }
 
-  async activate(id: string) {
+  activate(id: string) {
     return this.toggleActive(id, true);
   }
 
@@ -278,11 +379,14 @@ export class UsersService {
   async deleteUser(id: string) {
     this.validateId(id);
 
-    const user = await this.userModel.findById(id);
-
+    const user = await this.userModel.findById(id).exec();
     if (!user) throw new NotFoundException('User not found');
 
-    await this.userModel.findByIdAndDelete(id);
+    if (user.role === Role.SUPERADMIN) {
+      throw new ForbiddenException('Cannot delete SUPERADMIN');
+    }
+
+    await this.userModel.findByIdAndDelete(id).exec();
 
     this.logger.warn(`User deleted → ${user.email} (${id})`);
 
@@ -301,14 +405,24 @@ export class UsersService {
   }
 
   /* =========================
-     STORAGE
+     STORAGE QUOTA
   ========================= */
   async updateQuota(userId: string, quotaBytes: number) {
     this.validateId(userId);
 
-    await this.userModel.findByIdAndUpdate(userId, {
-      storageQuota: quotaBytes,
-    });
+    if (!Number.isFinite(quotaBytes) || quotaBytes <= 0) {
+      throw new BadRequestException('Invalid quota value');
+    }
+
+    const updated = await this.userModel
+      .findByIdAndUpdate(
+        userId,
+        { storageQuota: quotaBytes },
+        { new: true },
+      )
+      .exec();
+
+    if (!updated) throw new NotFoundException('User not found');
 
     return {
       userId,
@@ -321,47 +435,80 @@ export class UsersService {
      AUTH HELPERS
   ========================= */
   async updateLastLogin(userId: string) {
+    this.validateId(userId);
+
     await this.userModel.findByIdAndUpdate(userId, {
       lastLoginAt: new Date(),
     });
   }
 
-  async validatePassword(user: any, password: string) {
+  async validatePassword(
+    user: Pick<UserDocument, 'password'> | null | undefined,
+    password: string,
+  ): Promise<boolean> {
+    if (!user?.password) return false;
     return bcrypt.compare(password, user.password);
   }
 
   async forceSetPassword(userId: string, password: string) {
+    this.validateId(userId);
+
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
 
     await this.userModel.findByIdAndUpdate(userId, {
-      password: hashed,
+      $set: { password: hashed, refreshToken: null },
       $inc: { tokenVersion: 1 },
-      refreshToken: null,
     });
   }
 
   async setRefreshToken(userId: string, token: string) {
+    this.validateId(userId);
+
+    const hashed = await bcrypt.hash(token, SALT_ROUNDS);
+
     await this.userModel.findByIdAndUpdate(userId, {
-      refreshToken: token,
+      refreshToken: hashed,
     });
   }
 
   async removeRefreshToken(userId: string) {
+    this.validateId(userId);
+
     await this.userModel.findByIdAndUpdate(userId, {
       refreshToken: null,
     });
+  }
+
+  async compareRefreshToken(
+    userId: string,
+    token: string,
+  ): Promise<boolean> {
+    this.validateId(userId);
+
+    const user = await this.userModel
+      .findById(userId)
+      .select('+refreshToken')
+      .lean()
+      .exec();
+
+    if (!user?.refreshToken) return false;
+    return bcrypt.compare(token, user.refreshToken);
   }
 
   /* =========================
      HELPERS
   ========================= */
   private validateId(id: string) {
-    if (!Types.ObjectId.isValid(id)) {
+    if (!id || !Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid ID');
     }
   }
 
   private normalizeEmail(email: string) {
     return email.toLowerCase().trim();
+  }
+
+  private escapeRegex(input: string) {
+    return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }

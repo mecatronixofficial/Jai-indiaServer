@@ -16,7 +16,7 @@ import {
   cronConfig,
 } from './config/configuration';
 
-// Modules
+// Feature Modules
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { FilesModule } from './files/files.module';
@@ -29,7 +29,7 @@ import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 
-// Global
+// Global Security
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -38,7 +38,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 @Module({
   imports: [
     /**
-     * 🌍 Global Config
+     * 🌍 CONFIG
      */
     ConfigModule.forRoot({
       isGlobal: true,
@@ -56,7 +56,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     }),
 
     /**
-     * 🗄 MongoDB
+     * 🗄 DATABASE
      */
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -65,18 +65,20 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
         const uri = config.get<string>('mongo.uri');
 
         if (!uri) {
-          throw new Error('❌ MongoDB URI missing in .env');
+          throw new Error('❌ MongoDB URI missing in environment');
         }
 
         return {
           uri,
           connectionFactory: (connection) => {
-            connection.on('connected', () =>
-              console.log('✅ MongoDB connected'),
-            );
-            connection.on('error', (err) =>
-              console.error('❌ MongoDB error:', err),
-            );
+            connection.on('connected', () => {
+              console.log('✅ MongoDB connected');
+            });
+
+            connection.on('error', (err: Error | any) => {
+              console.error('MongoDB error:', err);
+            });
+
             return connection;
           },
         };
@@ -84,7 +86,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     }),
 
     /**
-     * 🚦 Rate Limiting
+     * 🚦 RATE LIMITING (HARDENED)
      */
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
@@ -95,16 +97,17 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
             limit: config.get<number>('throttle.limit') ?? 100,
           },
         ],
+        ignoreUserAgents: [/health-check/i],
       }),
     }),
 
     /**
-     * ⏰ Cron Jobs
+     * ⏰ SCHEDULER
      */
     ScheduleModule.forRoot(),
 
     /**
-     * 📦 Feature Modules
+     * 📦 FEATURE MODULES
      */
     AuthModule,
     UsersModule,
@@ -121,19 +124,23 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 
   providers: [
     /**
-     * 🔐 Global Security
+     * 🔐 AUTH (JWT FIRST)
      */
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+
+    /**
+     * 🛡 ROLE BASED ACCESS
+     */
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
 
     /**
-     * ❌ Global Error Handler
+     * ❌ GLOBAL ERROR HANDLING
      */
     {
       provide: APP_FILTER,
@@ -141,7 +148,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     },
 
     /**
-     * 🔄 Response Formatter
+     * 🔄 RESPONSE FORMATTER
      */
     {
       provide: APP_INTERCEPTOR,

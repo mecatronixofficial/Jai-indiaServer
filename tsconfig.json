@@ -1,26 +1,36 @@
 {
   "compilerOptions": {
     "module": "commonjs",
+    "target": "ES2021",
+
     "declaration": true,
     "removeComments": true,
+
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
+
     "allowSyntheticDefaultImports": true,
-    "target": "ES2021",
+    "esModuleInterop": true,
+
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
- 
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
 
     "incremental": true,
     "skipLibCheck": true,
+
+    /* =========================
+       🔐 STRICTNESS (IMPORTANT)
+    ========================= */
     "strictNullChecks": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* =========================
+       PATH ALIASES
+    ========================= */
     "paths": {
       "@auth/*": ["src/auth/*"],
       "@users/*": ["src/users/*"],
@@ -31,8 +41,7 @@
       "@transactions/*": ["src/transactions/*"],
       "@common/*": ["src/common/*"],
       "@config/*": ["src/config/*"],
-      "@r2/*": ["src/r2/*"],
+      "@r2/*": ["src/r2/*"]
     }
   }
-
 }
